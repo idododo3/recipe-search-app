@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>חידת הזאב, הכבש והכרוב | מסע הספינה</title>
+<meta name="description" content="חידת הזאב, הכבש והכרוב - משחק דפדפן עם גרפיקה מצוירת, מוזיקה, ניקוד מצטבר, מדידת זמן ולוח שיאים.">
+<meta name="theme-color" content="#06121f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛵</text></svg>">
+</head>
+<body>
+
+<div id="app">
+
+  <canvas id="stage" aria-label="נהר עם סירה, זאב, כבש וכרוב"></canvas>
+
+  <!-- ======= HUD ======= -->
+  <header id="hud" class="hud" hidden>
+    <div class="hud-group hud-right">
+      <div class="stat" title="שם השחקן">
+        <span class="stat-icon">🧑‍🌾</span>
+        <span class="stat-body">
+          <span class="stat-label">שחקן</span>
+          <strong class="stat-value" id="hud-player">אורח</strong>
+        </span>
+      </div>
+      <div class="stat" title="ניקוד מצטבר">
+        <span class="stat-icon">🏆</span>
+        <span class="stat-body">
+          <span class="stat-label">ניקוד מצטבר</span>
+          <strong class="stat-value" id="hud-total">0</strong>
+        </span>
+      </div>
+    </div>
+
+    <div class="hud-group hud-center">
+      <div class="stat stat-timer" title="זמן הסיבוב">
+        <span class="stat-icon">⏱️</span>
+        <span class="stat-body">
+          <span class="stat-label">זמן</span>
+          <strong class="stat-value" id="hud-time">00:00</strong>
+        </span>
+      </div>
+      <div class="stat" title="מספר הפלגות">
+        <span class="stat-icon">⛵</span>
+        <span class="stat-body">
+          <span class="stat-label">הפלגות</span>
+          <strong class="stat-value" dir="ltr"><span id="hud-moves">0</span><small>/7</small></strong>
+        </span>
+      </div>
+      <div class="stat" title="שלב">
+        <span class="stat-icon">🎯</span>
+        <span class="stat-body">
+          <span class="stat-label">שלב</span>
+          <strong class="stat-value" id="hud-level">1</strong>
+        </span>
+      </div>
+    </div>
+
+    <div class="hud-group hud-left">
+      <button class="icon-btn" id="btn-music" type="button" aria-pressed="true" title="מוזיקה (M)">🎵</button>
+      <button class="icon-btn" id="btn-sfx" type="button" aria-pressed="true" title="אפקטים (S)">🔊</button>
+      <button class="icon-btn" id="btn-scores" type="button" title="לוח שיאים (L)">📜</button>
+      <button class="icon-btn" id="btn-help" type="button" title="חוקי המשחק (H)">❓</button>
+      <button class="icon-btn" id="btn-restart" type="button" title="התחלה מחדש (R)">↺</button>
+    </div>
+  </header>
+
+  <!-- ======= Action bar ======= -->
+  <footer id="actionbar" class="actionbar" hidden>
+    <p class="hint" id="hint">בחרו נוסע אחד לסירה, ואז הפליגו.</p>
+    <button class="sail-btn" id="btn-sail" type="button">
+      <span class="sail-icon">⛵</span>
+      <span class="sail-text">להפליג!</span>
+      <kbd>רווח</kbd>
+    </button>
+  </footer>
+
+  <!-- ======= Toast ======= -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- ======= Start screen ======= -->
+  <section class="screen" id="screen-start">
+    <div class="panel panel-start">
+      <div class="crest">⛵</div>
+      <h1 class="title">חידת הזאב, הכבש והכרוב</h1>
+      <p class="subtitle">העבירו את כולם אל הגדה השנייה — בלי שאף אחד ייאכל בדרך.</p>
+
+      <label class="field">
+        <span class="field-label">איך קוראים לך?</span>
+        <input id="input-name" type="text" maxlength="14" placeholder="הכניסו שם שחקן" autocomplete="nickname" enterkeyhint="go">
+      </label>
+
+      <div class="returning" id="returning" hidden>
+        <span>ברוך שובך! ניקוד מצטבר:</span> <strong id="returning-score">0</strong>
+      </div>
+
+      <button class="primary-btn" id="btn-start" type="button">התחילו לשחק</button>
+
+      <ul class="feature-row">
+        <li><span>🎨</span>גרפיקה מצוירת</li>
+        <li><span>🎼</span>פסקול חי</li>
+        <li><span>🏆</span>ניקוד מצטבר</li>
+        <li><span>⏱️</span>מדידת זמן</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ======= Rules ======= -->
+  <section class="screen" id="screen-help" hidden>
+    <div class="panel">
+      <h2 class="panel-title">חוקי החידה</h2>
+      <ul class="rules">
+        <li><b>הסירה קטנה:</b> החקלאי מפליג לבד או עם נוסע אחד בלבד.</li>
+        <li><b>🐺 + 🐑:</b> אם הזאב והכבש נשארים לבד בגדה — הכבש נאכל.</li>
+        <li><b>🐑 + 🥬:</b> אם הכבש והכרוב נשארים לבד בגדה — הכרוב נאכל.</li>
+        <li><b>המטרה:</b> כל השלושה בגדה המזרחית, בשלמותם.</li>
+      </ul>
+      <h3 class="panel-subtitle">איך משחקים</h3>
+      <ul class="rules">
+        <li>לחיצה על דמות מעלה אותה לסירה, לחיצה נוספת מורידה אותה.</li>
+        <li>מקשים <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> לבחירת נוסע, <kbd>רווח</kbd> להפלגה.</li>
+        <li>הפתרון המושלם הוא <b>7 הפלגות</b> — כל הפלגה מיותרת מורידה נקודות.</li>
+      </ul>
+      <button class="primary-btn" data-close="screen-help" type="button">הבנתי</button>
+    </div>
+  </section>
+
+  <!-- ======= Leaderboard ======= -->
+  <section class="screen" id="screen-scores" hidden>
+    <div class="panel">
+      <h2 class="panel-title">לוח השיאים</h2>
+      <ol class="board" id="board"></ol>
+      <p class="board-empty" id="board-empty">עדיין אין תוצאות שמורות. סיימו שלב כדי להיכנס ללוח.</p>
+      <div class="panel-actions">
+        <button class="ghost-btn" id="btn-clear-scores" type="button">מחיקת הלוח</button>
+        <button class="primary-btn" data-close="screen-scores" type="button">סגירה</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======= Round over ======= -->
+  <section class="screen" id="screen-result" hidden>
+    <div class="panel panel-result">
+      <div class="result-badge" id="result-badge">🏅</div>
+      <h2 class="panel-title" id="result-title">כל הכבוד!</h2>
+      <p class="subtitle" id="result-subtitle">כולם הגיעו בשלום לגדה השנייה.</p>
+
+      <div class="score-grid">
+        <div class="score-cell"><span>זמן</span><strong id="result-time">00:00</strong></div>
+        <div class="score-cell"><span>הפלגות</span><strong id="result-moves">7</strong></div>
+        <div class="score-cell"><span>בונוס</span><strong id="result-bonus" dir="ltr">0</strong></div>
+        <div class="score-cell"><span>שלב</span><strong id="result-level">1</strong></div>
+        <div class="score-cell score-cell-main"><span>ניקוד השלב</span><strong id="result-points">0</strong></div>
+      </div>
+
+      <p class="result-total">ניקוד מצטבר: <strong id="result-total">0</strong></p>
+
+      <label class="field field-inline">
+        <span class="field-label">שם לשמירה בלוח השיאים</span>
+        <input id="result-name" type="text" maxlength="14" placeholder="שם השחקן">
+      </label>
+
+      <div class="panel-actions">
+        <button class="ghost-btn" id="btn-save-score" type="button">שמירת התוצאה</button>
+        <button class="primary-btn" id="btn-next" type="button">לשלב הבא</button>
+      </div>
+      <p class="saved-note" id="saved-note" hidden>✔️ התוצאה נשמרה בלוח השיאים</p>
+    </div>
+  </section>
+
+</div>
+
+<script src="js/audio.js"></script>
+<script src="js/art.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
