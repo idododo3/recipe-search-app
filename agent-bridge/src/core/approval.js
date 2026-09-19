@@ -1,6 +1,11 @@
 /**
  * שער האישורים. כל פעולה טעונת-אישור נעצרת כאן ומחכה להחלטה אנושית מפורשת.
- * אין מסלול עוקף: מי שמבקש לבצע פעולה חייב לקבל grant תקף לאותה משימה ולאותה פעולה.
+ *
+ * האישור קשור לא רק לסוג הפעולה אלא גם לפרמטרים המדויקים שלה: בזמן הבקשה
+ * מחושבת טביעת אצבע (SHA-256) של הפעולה יחד עם ה-payload שלה, והיא נשמרת
+ * בתוך ההחלטה. לפני הביצוע הטביעה מחושבת מחדש מהפרמטרים שעומדים לרוץ בפועל
+ * ומושווית. כך אישור ל-push לענף X אינו מאשר push לענף Y, ושינוי התוכנית
+ * אחרי האישור פוסל אותו.
  */
 
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
@@ -24,6 +29,33 @@ export class ApprovalDeniedError extends Error {
   }
 }
 
+/** הפרמטרים שעומדים לרוץ אינם אלה שאושרו — האישור בטל. */
+export class ApprovalParamsMismatchError extends Error {
+  constructor(action) {
+    super(
+      `הפרמטרים של "${describeAction(action)}" שונים מאלה שאושרו. האישור בטל ונדרש אישור חדש.`,
+    );
+    this.name = 'ApprovalParamsMismatchError';
+    this.action = action;
+  }
+}
+
+/**
+ * סריאליזציה קנונית: מפתחות ממוינים בכל עומק, כך שאותו תוכן נותן תמיד
+ * אותה מחרוזת ללא תלות בסדר ההכנסה.
+ */
+function canonicalize(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value ?? null);
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalize(value[k])}`).join(',')}}`;
+}
+
+/** טביעת אצבע של פעולה + הפרמטרים המדויקים שלה. */
+export function fingerprint(action, payload) {
+  return createHash('sha256').update(canonicalize({ action, payload: payload ?? {} })).digest('hex');
+}
+
 /** משווה אסימונים בזמן קבוע, כדי לא לדלוף מידע דרך זמן ההשוואה. */
 function tokensMatch(a, b) {
   const bufA = createHash('sha256').update(String(a)).digest();
@@ -45,11 +77,13 @@ export class ApprovalGate {
   /** יוצר בקשת אישור ומחזיר את המשימה במצב waiting_approval. */
   request(task, { action, summary, payload = {} }) {
     const requestId = randomUUID();
+    const paramsHash = fingerprint(action, payload);
     const pending = {
       requestId,
       action,
       summary,
       payload,
+      paramsHash,
       requestedAt: this.#now(),
       decision: null,
     };
@@ -58,7 +92,7 @@ export class ApprovalGate {
       action: 'approval.request',
       target: task.id,
       outcome: 'pending',
-      details: { requestId, requestedAction: action, summary },
+      details: { requestId, requestedAction: action, summary, paramsHash },
     });
     return { ...task, pendingApproval: pending };
   }
@@ -103,16 +137,24 @@ export class ApprovalGate {
       action: 'approval.decide',
       target: task.id,
       outcome: decision,
-      details: { requestId: pending.requestId, requestedAction: pending.action, reason },
+      details: {
+        requestId: pending.requestId,
+        requestedAction: pending.action,
+        paramsHash: pending.paramsHash,
+        reason,
+      },
     });
     return { ...task, pendingApproval: decided };
   }
 
   /**
-   * בודק האם מותר לבצע פעולה עכשיו.
-   * זורק ApprovalRequiredError אם אין אישור, ApprovalDeniedError אם נדחתה.
+   * בודק האם מותר לבצע את הפעולה עם הפרמטרים האלה, עכשיו.
+   *
+   * זורק ApprovalRequiredError אם אין אישור או שפג תוקפו,
+   * ApprovalDeniedError אם נדחתה,
+   * ו-ApprovalParamsMismatchError אם הפרמטרים שונים מאלה שאושרו.
    */
-  assertAllowed(task, action) {
+  assertAllowed(task, action, payload = {}) {
     if (!requiresApproval(action)) return;
 
     const pending = task.pendingApproval;
@@ -128,6 +170,23 @@ export class ApprovalGate {
     const age = Date.parse(this.#now()) - Date.parse(pending.decidedAt);
     if (!Number.isFinite(age) || age > this.#ttlMs) {
       throw new ApprovalRequiredError(action, pending.requestId);
+    }
+    // הבדיקה האחרונה ולא הראשונה: קודם מוודאים שיש בכלל אישור תקף,
+    // ורק אז שהוא מתאים לפרמטרים שעומדים לרוץ.
+    if (!tokensMatch(pending.paramsHash ?? '', fingerprint(action, payload))) {
+      this.#audit.record({
+        actor: 'agent-bridge',
+        action: 'approval.params_mismatch',
+        target: task.id,
+        outcome: 'blocked',
+        details: {
+          requestId: pending.requestId,
+          requestedAction: action,
+          approvedHash: pending.paramsHash ?? null,
+          attemptedHash: fingerprint(action, payload),
+        },
+      });
+      throw new ApprovalParamsMismatchError(action);
     }
   }
 }

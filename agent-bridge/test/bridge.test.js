@@ -98,3 +98,57 @@ test('המצב נשמר ונטען מחדש מהדיסק', async () => {
     cleanup();
   }
 });
+
+test('שינוי התוכנית אחרי approve נכשל — המשימה נחסמת ולא מבוצע push', async () => {
+  const { bridge, cleanup } = makeBridge();
+  try {
+    const submitted = bridge.submit({ title: 'משימה', repo: 'owner/repo' });
+    await bridge.plan(submitted.id);
+
+    // הריצה נעצרת על push, והמאשר רואה ענף מסוים ומאשר אותו.
+    const paused = await bridge.run(submitted.id);
+    assert.equal(paused.pendingApproval.action, ACTION.GIT_PUSH);
+    const approvedBranch = paused.pendingApproval.payload.branch;
+    const approved = bridge.approve(paused.id, paused.pendingApproval.requestId, { reason: 'בסדר' });
+
+    // התוכנית משתנה *אחרי* האישור: אותה פעולה, ענף אחר.
+    const tampered = structuredClone(approved);
+    const pushStep = tampered.plan.steps.find((step) => step.action === ACTION.GIT_PUSH);
+    pushStep.payload = { ...pushStep.payload, branch: 'main' };
+    assert.notEqual(pushStep.payload.branch, approvedBranch);
+    bridge.store.save(tampered);
+
+    const result = await bridge.run(submitted.id);
+
+    // האישור הישן אינו מכסה את הפרמטרים החדשים.
+    assert.equal(result.status, STATUS.BLOCKED);
+    assert.match(result.blockedReason, /שונים מאלה שאושרו/);
+    // ה-push לא בוצע בשום צורה, גם לא כ-dry run.
+    assert.equal(result.result?.artifacts?.[ACTION.GIT_PUSH], undefined);
+    // האישור הישן נוטרל ולא נשאר תלוי.
+    assert.equal(result.pendingApproval, null);
+    // האירוע נרשם ליומן, והשרשרת נותרה תקינה.
+    const mismatch = bridge.audit.read().find((e) => e.action === 'approval.params_mismatch');
+    assert.ok(mismatch, 'אירוע אי-ההתאמה נרשם ליומן');
+    assert.equal(mismatch.outcome, 'blocked');
+    assert.equal(bridge.audit.verify().valid, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test('אישור ל-push אינו מאפשר push לענף אחר גם אחרי plan מחדש', async () => {
+  const { bridge, cleanup } = makeBridge();
+  try {
+    const submitted = bridge.submit({ title: 'משימה', repo: 'owner/repo' });
+    await bridge.plan(submitted.id);
+    const paused = await bridge.run(submitted.id);
+    bridge.approve(paused.id, paused.pendingApproval.requestId, { reason: 'בסדר' });
+
+    // plan מחדש נחסם ממילא (running אינו עובר ל-planned), כך שאין מסלול
+    // להחליף תוכנית "כחוק" תוך שמירת האישור.
+    await assert.rejects(() => bridge.plan(submitted.id), /מעבר אסור/);
+  } finally {
+    cleanup();
+  }
+});

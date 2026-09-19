@@ -5,7 +5,12 @@
 
 import { GitHubAdapter } from '../adapters/github.js';
 import { MockCodeAgentRunner } from '../runners/mock-runner.js';
-import { ApprovalGate, ApprovalDeniedError, ApprovalRequiredError } from './approval.js';
+import {
+  ApprovalDeniedError,
+  ApprovalGate,
+  ApprovalParamsMismatchError,
+  ApprovalRequiredError,
+} from './approval.js';
 import { AuditLog } from './audit.js';
 import { loadConfig } from './config.js';
 import { ACTION, requiresApproval } from './policy.js';
@@ -95,7 +100,8 @@ export class AgentBridge {
 
       if (requiresApproval(step.action)) {
         try {
-          this.gate.assertAllowed(task, step.action);
+          // הפרמטרים של הצעד נבדקים מול אלה שאושרו, לא רק סוג הפעולה.
+          this.gate.assertAllowed(task, step.action, step.payload);
         } catch (err) {
           if (err instanceof ApprovalRequiredError) {
             const requested = this.gate.request(task, {
@@ -111,6 +117,20 @@ export class AgentBridge {
               'task.run.pause',
               { waitingFor: step.action, requestId: requested.pendingApproval.requestId },
               'pending',
+            );
+            return task;
+          }
+          if (err instanceof ApprovalParamsMismatchError) {
+            // התוכנית השתנתה אחרי האישור. לא מבקשים אישור חדש אוטומטית —
+            // חריגה כזו נחשבת אירוע חריג וחוסמת את המשימה לבדיקה אנושית.
+            task = this.#save(
+              transition({ ...task, pendingApproval: null }, STATUS.BLOCKED, {
+                reason: err.message,
+                now: this.now,
+              }),
+              'task.run.blocked',
+              { action: step.action, why: 'params_mismatch' },
+              'blocked',
             );
             return task;
           }

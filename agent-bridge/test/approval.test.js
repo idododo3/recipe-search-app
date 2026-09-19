@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { ApprovalDeniedError, ApprovalGate, ApprovalRequiredError } from '../src/core/approval.js';
+import {
+  ApprovalDeniedError,
+  ApprovalGate,
+  ApprovalParamsMismatchError,
+  ApprovalRequiredError,
+  fingerprint,
+} from '../src/core/approval.js';
 import { AuditLog } from '../src/core/audit.js';
 import { ACTION, requiresApproval } from '../src/core/policy.js';
 import { createTask } from '../src/core/task.js';
@@ -98,4 +104,43 @@ test('אישור פג תוקף אינו תקף יותר', () => {
   } finally {
     cleanup();
   }
+});
+
+test('אישור קשור לפרמטרים המדויקים: שינוי payload פוסל אותו', () => {
+  const { gate, cleanup } = makeGate();
+  try {
+    let task = createTask({ title: 'x' });
+    task = gate.request(task, {
+      action: ACTION.GIT_PUSH,
+      summary: 'push',
+      payload: { branch: 'agent-bridge/safe' },
+    });
+    task = gate.approve(task, task.pendingApproval.requestId, { approver: 'tester' });
+
+    // אותם פרמטרים — עובר.
+    gate.assertAllowed(task, ACTION.GIT_PUSH, { branch: 'agent-bridge/safe' });
+
+    // ענף אחר — נפסל.
+    assert.throws(
+      () => gate.assertAllowed(task, ACTION.GIT_PUSH, { branch: 'main' }),
+      ApprovalParamsMismatchError,
+    );
+    // שדה שנוסף — נפסל.
+    assert.throws(
+      () => gate.assertAllowed(task, ACTION.GIT_PUSH, { branch: 'agent-bridge/safe', force: true }),
+      ApprovalParamsMismatchError,
+    );
+    // payload חסר — נפסל.
+    assert.throws(() => gate.assertAllowed(task, ACTION.GIT_PUSH, {}), ApprovalParamsMismatchError);
+  } finally {
+    cleanup();
+  }
+});
+
+test('סדר המפתחות ב-payload אינו משנה את טביעת האצבע', () => {
+  assert.equal(
+    fingerprint(ACTION.OPEN_PR, { a: 1, b: { c: 2, d: 3 } }),
+    fingerprint(ACTION.OPEN_PR, { b: { d: 3, c: 2 }, a: 1 }),
+  );
+  assert.notEqual(fingerprint(ACTION.OPEN_PR, { a: 1 }), fingerprint(ACTION.GIT_PUSH, { a: 1 }));
 });
