@@ -1,0 +1,12 @@
+{
+  "name": "agent-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MVP מקומי לגשר בין משימת קוד לבין סוכן קוד מבודד, עם שער אישורים ו-audit log",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "cli": "node src/cli.js"
+  }
+}
