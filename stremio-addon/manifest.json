@@ -1,0 +1,10 @@
+{
+  "id": "community.direct.http.streams",
+  "version": "1.0.0",
+  "name": "Direct HTTP Streams",
+  "description": "Serves direct HTTP/HLS links (no torrents, no debrid) from your own list of sources. Works with the LG webOS built-in player when files are H.264/AAC MP4 or HLS.",
+  "resources": ["stream"],
+  "types": ["series", "movie"],
+  "idPrefixes": ["tt"],
+  "catalogs": []
+}
